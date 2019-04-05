@@ -16,6 +16,8 @@ param (
     [string]$idx = "0",
     [string]$mkt = "en-GB",
     [string]$savePath = "",
+    [switch]$RegisterSchedule = $false,
+    [switch]$UnregisterSchedule = $false,
     
     [ValidateSet("NoChange", "Center", "Tile", "Stretch", "Fit", "Fill")]
     [string]$wallpaperStyle = "NoChange"
@@ -192,12 +194,53 @@ function Get-ScreenResolution {
 }
 
 
+function Register-Schedule($taskPath, $taskName) { 
+    # Make sure task doesn't already exist
+    Unregister-Schedule $taskPath $taskName
+
+    $argument = $script:MyInvocation.MyCommand.Path
+    if ($size -ne "") { $argument += " -size $size" }
+    if ($idx -ne 0) { $argument += " -idx $idx" }
+    if ($mkt -ne "en-GB") { $argument += " -mkt $mkt" }
+    if ($wallpaperStyle -ne "NoChange") { $argument += " -wallpaperStyle $wallpaperStyle" }
+    $trigger = New-ScheduledTaskTrigger -At 00:10 -Daily
+    $action = New-ScheduledTaskAction -Execute "Powershell.exe" -Argument $argument
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -StartWhenAvailable
+    $task = Register-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Trigger $trigger -Action $action -Settings $settings
+    Write-Output "    Scheduled task registered."
+}
+
+
+function Unregister-Schedule($taskPath, $taskName) {
+    $existingTask = Get-ScheduledTask | where { $_.TaskName -eq $taskName -and $_.TaskPath -eq $taskPath}
+    if ($existingTask) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+        Write-Output "    Scheduled task unregistered"
+    } else {
+        Write-Output "    Scheduled task doesn't currently exist"
+    }
+}
+
 
 #   Main Program Entry Point
 #   #########################################
 
+$taskPath = "\"
+$taskName = "Bing Wallpaperer Daily Update"
+
 Write-Output ""
 Write-Output ">>> Bing Image of the Day Wallpaper Updater <<<"
+
+if ($UnregisterSchedule) {
+    Write-Output "... Unregistering daily schedule task"
+    Unregister-Schedule $taskPath $taskName
+}
+
+if ($RegisterSchedule) {
+    Write-Output "... Registering daily schedule task"
+    Register-Schedule $taskPath $taskName
+}
+
 
 if ($size -eq "") {
     $size = Get-ScreenResolution
@@ -216,7 +259,7 @@ $imageSizes = Get-IdealImageDimensionsArray $size
 foreach ($imageSize in $imageSizes) {
 
     # Let's try and download the image
-    Write-Output "... Trying to get image - size: $imageSize, idx: $idx, mkt: $mkt, wallpaperStyle: $wallpaperStyle"
+    Write-Output "... Trying to get image - size: $imageSize, idx: $idx, mkt: $mkt"
     $saveLocation = Get-Image $imageSize $idx $mkt
 
     if ($saveLocation -ne "") {
@@ -224,8 +267,8 @@ foreach ($imageSize in $imageSizes) {
         Write-Output "... Image successfully saved to: $saveLocation" 
 
         # Set the image as the desktop wallpaper
-        [Wallpaper.Setter]::SetWallpaper($saveLocation, $wallpaperStyle)        
-        Write-Output "... and wallpaper set"
+        [Wallpaper.Setter]::SetWallpaper($saveLocation, $wallpaperStyle)         
+        Write-Output "... Wallpaper set with style of $wallpaperStyle"
         
         # We can break out of our $imageSizes loop now
         break
